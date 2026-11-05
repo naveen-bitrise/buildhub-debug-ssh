@@ -53,7 +53,7 @@ Pick one (see [relays/](relays/README.md)):
 
 ### 2. Runner pool warm-up
 
-Add [`warmup/warmup-debug-sshd.sh`](warmup/README.md) to the Build Hub runner pool's warm-up script: append it to the end of an existing warm-up script, or use it as the whole script if the pool has none. It never fails the warm-up.
+Copy the contents of [`warmup/warmup-debug-sshd.sh`](warmup/warmup-debug-sshd.sh) and paste it at the end of your Build Hub runner pool's warm-up script ([details](warmup/README.md)).
 
 ### 3. GitHub secret and variables
 
