@@ -3,7 +3,7 @@
 SSH into the **Bitrise Build Hub** runner that is running your GitHub Actions job, to debug a failure live. No Bitrise admin rights, no third-party relay, no passwords.
 
 - A developer who triggered (or re-ran) a job can SSH into **that job's runner** with the SSH key on their GitHub profile.
-- Sessions start on failure or on demand, last 30 minutes by default, and can be extended from inside the session.
+- Sessions start on demand, last 30 minutes by default, and can be extended from inside the session.
 - Traffic goes through a small **relay VM you own**. One relay serves all runners and developers.
 
 > This is a field tool, not an official Bitrise product feature.
@@ -21,9 +21,9 @@ Runner VM ──────▶│ :22  tunnel user (reverse tunnels only)│
 2. **Job** (when a step fails, or on demand): the action
    - downloads the GitHub SSH keys of the user who ran the job,
    - opens a reverse tunnel from a public port on the relay to the runner's debug SSH server,
-   - prints the connect command in the job log and job summary,
+   - prints the connect command in the job log (and as a run annotation),
    - keeps the job alive until the developer finishes or time runs out.
-3. **Developer** runs the command from the job summary. Only their GitHub keys work. The SSH session is end to end between the developer and the runner; the relay only forwards bytes.
+3. **Developer** runs the command printed in the job log (the job is paused at the Debug SSH step). Only their GitHub keys work. The SSH session is end to end between the developer and the runner; the relay only forwards bytes.
 
 ## Setup (one-time)
 
@@ -36,21 +36,29 @@ Pick one (see [relays/](relays/README.md)):
 | Google Cloud VM | [`relays/gcp/`](relays/gcp/README.md): `./relays/gcp/setup-relay.sh` |
 | Any Linux VM | [`relays/generic/`](relays/generic/README.md): manual steps |
 
+**What you get:** when the relay setup finishes, it prints three values. You store them in GitHub (step 3), and the workflow passes them to the **Debug SSH** action as its three required inputs:
+
+| Printed by the relay setup | Store in GitHub as | Action input |
+|---|---|---|
+| Relay IP | Variable `RELAY_HOST` | `relay-host` |
+| Relay host key line (`1.2.3.4 ssh-ed25519 AAAA…`) | Variable `RELAY_KNOWN_HOSTS` | `relay-known-hosts` |
+| Path to the tunnel private key (`~/.buildhub-debug-ssh/<relay>/tunnel_ed25519`) | Secret `RELAY_TUNNEL_KEY` (the file's contents) | `tunnel-key` |
+
 ### 2. Runner pool warm-up
 
-Add [`warmup/warmup-debug-sshd.sh`](warmup/README.md) to the Build Hub runner pool's warm-up script.
+Add [`warmup/warmup-debug-sshd.sh`](warmup/README.md) to the Build Hub runner pool's warm-up script: append it to the end of an existing warm-up script, or use it as the whole script if the pool has none. It never fails the warm-up.
 
 ### 3. GitHub secret and variables
 
-In the repo (or org) that runs the jobs, **Settings → Secrets and variables → Actions**. The relay setup prints the values:
+In the repo (or org) that runs the jobs, go to **Settings → Secrets and variables → Actions** and add the three values from step 1:
 
 | Type | Name | Value |
 |---|---|---|
-| Secret | `RELAY_TUNNEL_KEY` | Tunnel private key (`~/.buildhub-debug-ssh/<relay>/tunnel_ed25519`) |
+| Secret | `RELAY_TUNNEL_KEY` | Contents of the tunnel private key file, including the `BEGIN`/`END` lines |
 | Variable | `RELAY_HOST` | Relay IP |
-| Variable | `RELAY_KNOWN_HOSTS` | Relay host key line, e.g. `1.2.3.4 ssh-ed25519 AAAA…` |
+| Variable | `RELAY_KNOWN_HOSTS` | Relay host key line |
 
-For org-level values, give the repos access under **Repository access**.
+The relay setup also prints ready-to-run `gh secret set` / `gh variable set` commands. For org-level values, give the repos access under **Repository access**.
 
 ### 4. Workflow
 
@@ -69,7 +77,7 @@ jobs:
     steps:
       # ... your steps ...
       - name: Debug SSH
-        if: ${{ failure() || inputs.debug_enabled }}
+        if: ${{ !cancelled() && (inputs.debug_enabled || (failure() && runner.debug == '1')) }}
         uses: naveen-bitrise/buildhub-debug-ssh@v1
         with:
           relay-host: ${{ vars.RELAY_HOST }}
@@ -78,6 +86,13 @@ jobs:
 ```
 
 Full example: [`examples/workflow.yml`](examples/workflow.yml).
+
+**When does a session open?** Only when someone asks for it:
+
+- **Run workflow** manually with **debug_enabled** ticked, or
+- **Re-run** a failed job with **Enable debug logging** ticked; the session opens if it fails again.
+
+It deliberately doesn't open on every failure: each session holds the runner until it ends, even if nobody connects. To debug every failure anyway, use `if: ${{ failure() }}` with a short `start-minutes`.
 
 #### Inputs
 
@@ -94,13 +109,40 @@ Full example: [`examples/workflow.yml`](examples/workflow.yml).
 
 ## Using a session
 
-1. Make sure your SSH public key is on your GitHub profile (`github.com/settings/keys`).
-2. Run the workflow with **debug_enabled**, or wait for a step to fail.
-3. Copy the command from the job summary, e.g.
+### Prerequisite: your SSH key on GitHub
+
+The runner only lets in the SSH keys on your GitHub profile. Do this once per computer.
+
+1. Check for an existing key:
    ```bash
-   ssh -o HostKeyAlias=buildhub-123-1 -p 23456 vagrant@1.2.3.4
+   ls ~/.ssh/*.pub
    ```
-   Check the runner host key fingerprint against the one in the summary on first connect.
+2. If there's none, create one:
+   ```bash
+   ssh-keygen -t ed25519 -C "you@example.com"
+   ```
+3. Add the **public** key (`.pub`) to GitHub, either at **GitHub → Settings → SSH and GPG keys → New SSH key**, or with the CLI:
+   ```bash
+   gh ssh-key add ~/.ssh/id_ed25519.pub --title "Work laptop"
+   ```
+4. Check it's the key GitHub has: compare the fingerprint from `ssh-keygen -lf ~/.ssh/id_ed25519.pub` with the one shown on the GitHub SSH keys page, or run `ssh -T git@github.com`.
+
+### Connect
+
+1. Start a session: **Run workflow** with **debug_enabled**, or **Re-run** a failed job with **Enable debug logging**.
+2. Open the running job and expand the **Debug SSH** step. The job stays paused at this step and the log shows:
+   ```
+   ================================================================
+    DEBUG SSH SESSION: job paused at this step
+   ================================================================
+    Connect (only your-github-user, with the SSH key on their GitHub profile):
+
+      ssh -o HostKeyAlias=buildhub-123-1 -p 23456 vagrant@1.2.3.4
+
+    Runner host key fingerprint: SHA256:…
+   ```
+   The same command also appears as an annotation at the top of the run's summary page.
+3. Run that command. On first connect, check that the host key fingerprint matches the one in the log.
 4. Inside the session:
 
 | Command | |
@@ -129,7 +171,8 @@ The job's workspace is under `~/actions-runner/_work/`.
 | Runner VMs fail to start after adding the warm-up | Port clash. Don't use `2222`; keep the default `10022` |
 | `Tunnel … failed` / `Host key verification failed` | `RELAY_KNOWN_HOSTS` doesn't match the relay (e.g. its IP changed); re-run the relay setup and update the variables |
 | `Permission denied (publickey)` when connecting | Your key isn't on your GitHub profile, or you aren't the user who ran the job (use `github-users`) |
-| `REMOTE HOST IDENTIFICATION HAS CHANGED` | Use the full command from the summary (it includes `HostKeyAlias`) |
+| `REMOTE HOST IDENTIFICATION HAS CHANGED` | Use the full command from the job log (it includes `HostKeyAlias`) |
+| Debug SSH step skipped | The `if:` didn't match: start with **debug_enabled**, or re-run with **Enable debug logging** |
 
 ## Repository layout
 

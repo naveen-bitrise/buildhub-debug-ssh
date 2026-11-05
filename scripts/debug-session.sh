@@ -4,7 +4,7 @@
 # 1. Allows the GitHub SSH keys of the job's user into the runner's debug sshd
 #    (started by warmup/warmup-debug-sshd.sh on 127.0.0.1:$DEBUG_SSHD_PORT).
 # 2. Opens a reverse tunnel: public port on the relay -> that debug sshd.
-# 3. Prints the connect command in the job log and job summary.
+# 3. Prints the connect command in the job log (and as a run annotation).
 # 4. Keeps the job alive until the developer runs ~/debug-done or time runs out.
 #    ~/debug-extend adds time, ~/debug-status shows time left.
 
@@ -73,25 +73,30 @@ if [ -z "$PORT" ]; then
   fail "Could not open the tunnel (check relay-host, relay-known-hosts and tunnel-key)."
 fi
 
-# ---------- 3. tell the developer ----------
+# ---------- 3. tell the developer (job log + run annotation) ----------
 ALIAS="buildhub-${GITHUB_RUN_ID:-0}-${GITHUB_RUN_ATTEMPT:-1}"
 CMD="ssh -o HostKeyAlias=$ALIAS -p $PORT $(whoami)@$RELAY_HOST"
 FP=$(ssh-keygen -lf /opt/debug-sshd/ssh_host_ed25519_key.pub 2>/dev/null | awk '{print $2}' || true)
 echo "::notice title=Debug SSH (for ${USERS})::$CMD"
-if [ -n "${GITHUB_STEP_SUMMARY:-}" ]; then
-  {
-    echo "### Debug SSH (only ${USERS} can log in)"
-    echo '```'
-    echo "$CMD"
-    echo '```'
-    [ -n "$FP" ] && echo "Runner host key fingerprint: \`$FP\`"
-    echo
-    echo "Session: ${DEBUG_START_MINUTES} min, extendable to ${DEBUG_MAX_MINUTES} min. Inside the session:"
-    echo '- `~/debug-status` time left'
-    echo "- \`~/debug-extend\` add ${DEBUG_EXTEND_MINUTES} min"
-    echo '- `~/debug-done` finish now'
-  } >> "$GITHUB_STEP_SUMMARY"
-fi
+cat <<EOF
+
+================================================================
+ DEBUG SSH SESSION: job paused at this step
+================================================================
+ Connect (only ${USERS}, with the SSH key on their GitHub profile):
+
+   $CMD
+
+ Runner host key fingerprint: ${FP:-unknown}
+ Session: ${DEBUG_START_MINUTES} min, extendable to ${DEBUG_MAX_MINUTES} min.
+
+ Inside the session:
+   ~/debug-status    time left
+   ~/debug-extend    add ${DEBUG_EXTEND_MINUTES} min
+   ~/debug-done      finish now (the job continues)
+================================================================
+
+EOF
 
 # ---------- 4. helper commands ----------
 cat > ~/debug-extend <<'EOF'

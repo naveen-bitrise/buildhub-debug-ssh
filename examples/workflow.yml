@@ -1,4 +1,9 @@
-# Example: SSH into the Build Hub runner when a job fails, or on demand.
+# Example: SSH into the Build Hub runner, on demand.
+#
+# A session opens when:
+#   - the workflow is started manually with "debug_enabled", or
+#   - a failed job is re-run with "Enable debug logging" ticked and fails again.
+# (Not on every failure: each session holds the runner until it ends.)
 #
 # Prerequisites (one-time): a relay (relays/), the GitHub secret/variables it
 # prints, and the warm-up snippet in your runner pool (warmup/).
@@ -23,7 +28,7 @@ jobs:
       # ... your build / test steps ...
 
       - name: Debug SSH
-        if: ${{ failure() || inputs.debug_enabled }}
+        if: ${{ !cancelled() && (inputs.debug_enabled || (failure() && runner.debug == '1')) }}
         uses: naveen-bitrise/buildhub-debug-ssh@v1
         with:
           relay-host: ${{ vars.RELAY_HOST }}

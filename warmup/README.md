@@ -14,7 +14,7 @@ It is safe to add anywhere in an existing warm-up script: it runs as a separate 
 
 ## Add it to your pool
 
-**Option A: paste.** Copy everything between `BEGIN debug-sshd` and `END debug-sshd` into the pool's warm-up script.
+**Option A: paste.** Copy everything between `BEGIN debug-sshd` and `END debug-sshd` and append it to the end of the pool's existing warm-up script (or use it as the whole script if the pool has none).
 
 **Option B: download a pinned version** (keeps every pool on the same release):
 
