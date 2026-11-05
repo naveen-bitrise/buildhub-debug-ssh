@@ -1,0 +1,36 @@
+# Example: SSH into the Build Hub runner when a job fails, or on demand.
+#
+# Prerequisites (one-time): a relay (relays/), the GitHub secret/variables it
+# prints, and the warm-up snippet in your runner pool (warmup/).
+
+name: CI
+
+on:
+  push:
+  workflow_dispatch:
+    inputs:
+      debug_enabled:
+        type: boolean
+        description: Open an SSH debug session
+        default: false
+
+jobs:
+  build:
+    runs-on: <your-bitrise-runner-label>
+    steps:
+      - uses: actions/checkout@v4
+
+      # ... your build / test steps ...
+
+      - name: Debug SSH
+        if: ${{ failure() || inputs.debug_enabled }}
+        uses: naveen-bitrise/buildhub-debug-ssh@v1
+        with:
+          relay-host: ${{ vars.RELAY_HOST }}
+          relay-known-hosts: ${{ vars.RELAY_KNOWN_HOSTS }}
+          tunnel-key: ${{ secrets.RELAY_TUNNEL_KEY }}
+          # Optional:
+          # github-users: alice,bob     # default: whoever triggered / re-ran the job
+          # start-minutes: 30
+          # extend-minutes: 15
+          # max-minutes: 120

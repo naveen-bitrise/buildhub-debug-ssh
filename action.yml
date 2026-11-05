@@ -1,0 +1,54 @@
+name: Build Hub debug SSH
+description: Open an SSH debug session into the Bitrise Build Hub runner running this job, through your own relay.
+author: naveen-bitrise
+branding:
+  icon: terminal
+  color: purple
+
+inputs:
+  relay-host:
+    description: Public IP or hostname of the relay (e.g. vars.RELAY_HOST)
+    required: true
+  relay-known-hosts:
+    description: known_hosts line for the relay, printed by the relay setup script (e.g. vars.RELAY_KNOWN_HOSTS)
+    required: true
+  tunnel-key:
+    description: Private key of the relay's tunnel account (e.g. secrets.RELAY_TUNNEL_KEY)
+    required: true
+  github-users:
+    description: Comma-separated GitHub users allowed to log in. Default is the user who triggered (or re-ran) the job.
+    required: false
+    default: ""
+  start-minutes:
+    description: Initial session length in minutes
+    required: false
+    default: "30"
+  extend-minutes:
+    description: Minutes added by each ~/debug-extend
+    required: false
+    default: "15"
+  max-minutes:
+    description: Maximum total session length in minutes, extensions included
+    required: false
+    default: "120"
+  sshd-port:
+    description: Port of the debug sshd started by the warm-up script (must match warmup DEBUG_SSHD_PORT)
+    required: false
+    default: "10022"
+
+runs:
+  using: composite
+  steps:
+    - name: Debug SSH session
+      shell: bash
+      run: bash "${{ github.action_path }}/scripts/debug-session.sh"
+      env:
+        RELAY_HOST: ${{ inputs.relay-host }}
+        RELAY_KNOWN_HOSTS: ${{ inputs.relay-known-hosts }}
+        RELAY_TUNNEL_KEY: ${{ inputs.tunnel-key }}
+        GITHUB_USERS: ${{ inputs.github-users }}
+        ACTOR: ${{ github.triggering_actor }}
+        DEBUG_START_MINUTES: ${{ inputs.start-minutes }}
+        DEBUG_EXTEND_MINUTES: ${{ inputs.extend-minutes }}
+        DEBUG_MAX_MINUTES: ${{ inputs.max-minutes }}
+        DEBUG_SSHD_PORT: ${{ inputs.sshd-port }}
