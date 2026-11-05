@@ -36,19 +36,8 @@ inputs:
     required: false
     default: "10022"
 
+# JavaScript action (not composite) so the step's log streams live in the
+# GitHub UI while the session is open. index.js just runs scripts/debug-session.sh.
 runs:
-  using: composite
-  steps:
-    - name: Debug SSH session
-      shell: bash
-      run: bash "${{ github.action_path }}/scripts/debug-session.sh"
-      env:
-        RELAY_HOST: ${{ inputs.relay-host }}
-        RELAY_KNOWN_HOSTS: ${{ inputs.relay-known-hosts }}
-        RELAY_TUNNEL_KEY: ${{ inputs.tunnel-key }}
-        GITHUB_USERS: ${{ inputs.github-users }}
-        ACTOR: ${{ github.triggering_actor }}
-        DEBUG_START_MINUTES: ${{ inputs.start-minutes }}
-        DEBUG_EXTEND_MINUTES: ${{ inputs.extend-minutes }}
-        DEBUG_MAX_MINUTES: ${{ inputs.max-minutes }}
-        DEBUG_SSHD_PORT: ${{ inputs.sshd-port }}
+  using: node24
+  main: index.js

@@ -213,6 +213,7 @@ The job's workspace is under `~/actions-runner/_work/`.
 
 ```
 action.yml                 the action (works with any relay)
+index.js                   runs the session script (JavaScript action, so the log streams live)
 scripts/debug-session.sh   session logic used by the action
 warmup/                    warm-up snippet for Build Hub runner pools
 relays/                    relay setup: gcp/, generic/ (aws/ planned)
