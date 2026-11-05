@@ -1,13 +1,14 @@
 # Relays
 
-Build Hub runners can't accept incoming connections, so a **relay** sits in the middle: the runner opens a reverse SSH tunnel to it, and the developer connects to the relay's port for that tunnel.
+Build Hub runners can't accept incoming connections, so a **relay** sits in the middle:
 
 ```
-Runner VM ──(ssh -R, tunnel key)──▶ Relay :20000-29999 ◀──(ssh -p PORT)── Developer
-   debug sshd 127.0.0.1:10022            only forwards bytes        GitHub SSH key
+  Your laptop  ───ssh───▶  Relay VM  ◀───tunnel───  Runner VM
 ```
 
-The relay is yours. It never sees developer keys or session contents (the SSH session is end to end between the developer and the runner). It only needs a few things.
+The runner opens a tunnel to the relay; you connect to the relay, and it passes you through to the runner.
+
+The relay is just a small Linux VM with a public IP that **you** own. It can run anywhere: **Google Cloud, AWS, Azure, or your own servers**. It only forwards the connection; it can't see your keys or what you type. One relay serves all runners and developers.
 
 ## What any relay needs
 

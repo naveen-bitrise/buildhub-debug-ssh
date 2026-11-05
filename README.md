@@ -6,24 +6,31 @@ SSH into the **Bitrise Build Hub** runner that is running your GitHub Actions jo
 - Sessions start on demand, last 30 minutes by default, and can be extended from inside the session.
 - Traffic goes through a small **relay VM you own**. One relay serves all runners and developers.
 
-> This is a field tool, not an official Bitrise product feature.
+> Not an official Bitrise product. Provided as-is to help Build Hub users debug jobs until native support is available in Bitrise.
 
 ## How it works
 
 ```
-                 ┌──────────── your relay VM ────────────┐
-Runner VM ──────▶│ :22  tunnel user (reverse tunnels only)│
-(debug sshd      │ :20000-29999  one port per session     │◀────── Developer
- 127.0.0.1:10022)└────────────────────────────────────────┘        ssh -p PORT … (GitHub SSH key)
+  Your laptop  ───ssh───▶  Relay VM  ◀───tunnel───  Runner VM
+                           (yours)                  (running your job)
 ```
 
-1. **Warm-up** (once per VM): the pool's warm-up script starts a separate, locked-down SSH server on the runner at `127.0.0.1:10022` (key-only, no root). Bitrise's own SSH is untouched.
-2. **Job** (when a step fails, or on demand): the action
-   - downloads the GitHub SSH keys of the user who ran the job,
-   - opens a reverse tunnel from a public port on the relay to the runner's debug SSH server,
-   - prints the connect command in the job log (and as a run annotation),
-   - keeps the job alive until the developer finishes or time runs out.
-3. **Developer** runs the command printed in the job log (the job is paused at the Debug SSH step). Only their GitHub keys work. The SSH session is end to end between the developer and the runner; the relay only forwards bytes.
+Runners can't accept incoming connections. So the **runner calls out to the relay first**, and the relay passes your SSH connection back down that line.
+
+**What happens when you want to debug a job:**
+
+1. You ask for a debug session by re-running a failed job with debug logging, or by starting a run with `debug_enabled` ([how](#start-a-session)).
+2. The job reaches the **Debug SSH** step and pauses there.
+3. The runner connects to the relay and gets a port for this session, e.g. `23456`.
+4. The step's log shows the command to run, e.g. `ssh -p 23456 vagrant@<relay-ip>`. Running it logs you in with the SSH key set up in your GitHub account; nobody else's key is accepted. (Having an SSH key in your GitHub account is a [prerequisite](#prerequisite-your-ssh-key-on-github).)
+5. You get a shell on the runner: the same machine and user as your job, with its checkout and build files.
+6. When you're done, run `~/debug-done`. The job continues and the VM is released.
+
+**What's set up once:**
+
+- **A relay VM** that you own. It only passes connections through; it can't see what you type.
+- **A small extra SSH server on each Build Hub runner,** started by the pool's warm-up script. It's only reachable through the relay, and only accepts keys. Bitrise's own SSH is untouched.
+- **Three GitHub settings** (relay address, its host key, a tunnel key) that the workflow passes to the action.
 
 ## Setup (one-time)
 
@@ -87,7 +94,7 @@ jobs:
 
 Full example: [`examples/workflow.yml`](examples/workflow.yml).
 
-**When does a session open?** Only when someone asks for it:
+**When does a debug session open?** Only when someone asks for it:
 
 - **Run workflow** manually with **debug_enabled** ticked, or
 - **Re-run** a failed job with **Enable debug logging** ticked; the session opens if it fails again.
@@ -127,9 +134,37 @@ The runner only lets in the SSH keys on your GitHub profile. Do this once per co
    ```
 4. Check it's the key GitHub has: compare the fingerprint from `ssh-keygen -lf ~/.ssh/id_ed25519.pub` with the one shown on the GitHub SSH keys page, or run `ssh -T git@github.com`.
 
+### Start a session
+
+There are two ways, matching the `if:` in the workflow.
+
+**A. A job failed: re-run it with debug logging**
+
+The session opens if the job fails again, paused at the failure.
+
+- Web: open the failed run → **Re-run jobs** → **Re-run failed jobs** (or the re-run icon next to one job) → tick **Enable debug logging** → **Re-run jobs**.
+- CLI:
+  ```bash
+  gh run rerun <run-id> --failed --debug
+  ```
+
+Debug logging also makes the job's logs more verbose. That's harmless.
+
+**B. Start a fresh run with a session**
+
+The session opens after the build steps, whether they pass or fail.
+
+- Web: **Actions** → your workflow → **Run workflow** → pick the branch → tick **debug_enabled** → **Run workflow**.
+- CLI:
+  ```bash
+  gh workflow run <workflow-file>.yml --ref <branch> -f debug_enabled=true
+  ```
+
+This needs `workflow_dispatch` in the workflow, as in the example. The **Run workflow** button only appears once that workflow file is on the default branch.
+
 ### Connect
 
-1. Start a session: **Run workflow** with **debug_enabled**, or **Re-run** a failed job with **Enable debug logging**.
+1. Start a session (see above).
 2. Open the running job and expand the **Debug SSH** step. The job stays paused at this step and the log shows:
    ```
    ================================================================
